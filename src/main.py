@@ -1,4 +1,5 @@
 from Trainer import Trainer
+import torch
 
 if __name__ == "__main__":
     trainer = Trainer(num_views=12, num_classes=40, embed_dim=1024, 
@@ -7,9 +8,17 @@ if __name__ == "__main__":
     
     trainer.get_train_loader("data/ModelNet40-12-split/train", batch_size=16, shuffle=True, num_workers=8)
     trainer.get_test_loader("data/ModelNet40-12-split/test", batch_size=32, shuffle=False, num_workers=8)
-    trainer.train(num_epochs=50)
     
-    test_accuracy, class_accuracy = trainer.get_test_accuracy()
-    print(f"Final Test Accuracy: {test_accuracy * 100:.2f}%, Class Accuracy: {class_accuracy * 100:.2f}%")
+    try:
+        trainer.train(num_epochs=50)
+        
+        test_accuracy, class_accuracy = trainer.get_test_accuracy()
+        print(f"Final Test Accuracy: {test_accuracy * 100:.2f}%, Class Accuracy: {class_accuracy * 100:.2f}%")
+    except KeyboardInterrupt:
+        print("Training interrupted. Saving current model...")
+    finally:
+        torch.save(trainer.feature_vit.state_dict(), "feature_vit.pth")
+        torch.save(trainer.multi_view_model.state_dict(), "multi_view_model.pth")
+        print("Models saved successfully.")
     
     trainer.save_model()

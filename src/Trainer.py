@@ -145,14 +145,11 @@ class Trainer:
 
             test_accuracy, class_accuracy = self.get_test_accuracy()
 
-            # Save best model
             if test_accuracy > best_accuracy:
                 best_accuracy = test_accuracy
-                print(
-                    f"Epoch [{epoch + 1}/{num_epochs}], Loss: {avg_loss:.4f}, Test Accuracy: {best_accuracy:.4f}, Class Accuracy: {class_accuracy:.4f}, Best: {best_accuracy:.4f}, LR: {self.optimizer.param_groups[0]['lr']:.6f}"
-                )
-            else:
-                print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {avg_loss:.4f}, LR: {self.optimizer.param_groups[0]['lr']:.6f}")
+            print(
+                f"Epoch [{epoch + 1}/{num_epochs}], Loss: {avg_loss:.4f}, Test Accuracy: {best_accuracy:.4f}, Class Accuracy: {class_accuracy:.4f}, Best: {best_accuracy:.4f}, LR: {self.optimizer.param_groups[0]['lr']:.6f}"
+            )
 
             if self.device.type == 'cuda':
                 torch.cuda.empty_cache()
