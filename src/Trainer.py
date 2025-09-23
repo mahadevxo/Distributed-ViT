@@ -42,13 +42,13 @@ class Trainer:
         self.freeze_feat_vit = freeze_feat_vit
         self.freeze_class_model = freeze_class_model
         
-    def get_train_loader(self, train_dir, batch_size=32, shuffle=True, num_workers=4):
+    def get_train_loader(self, train_dir, batch_size=12, shuffle=True, num_workers=8):
         train_set = MultiviewImgDataset(train_dir, num_views=self.num_views)
         self.train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=shuffle, 
                                      num_workers=num_workers, pin_memory=True, persistent_workers=True)
         return self.train_loader
 
-    def get_test_loader(self, test_dir, batch_size=32, shuffle=False, num_workers=4):
+    def get_test_loader(self, test_dir, batch_size=12, shuffle=False, num_workers=8):
         test_set = MultiviewImgDataset(test_dir, num_views=self.num_views, test_mode=True)
         self.test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=shuffle, 
                                     num_workers=num_workers, pin_memory=True, persistent_workers=True)
