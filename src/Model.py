@@ -31,7 +31,7 @@ class Feature_ViT(torch.nn.Module):
         return self.encoder(x)
     
 class MultiView_Classifier(torch.nn.Module):
-    def __init__(self, num_views=12, num_classes=40, embed_dim=768, num_heads=4, num_layers=2):
+    def __init__(self, num_views=12, num_classes=40, embed_dim=1024, num_heads=4, num_layers=2):
         super(MultiView_Classifier, self).__init__()
         self.num_views = num_views
         self.embed_dim = embed_dim

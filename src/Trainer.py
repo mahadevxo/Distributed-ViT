@@ -23,8 +23,8 @@ class Trainer:
                                                      embed_dim=embed_dim, num_heads=num_heads,
                                                      num_layers=num_layers).to(self.device)
         self.criterion = nn.CrossEntropyLoss()
-        self.optimizer = optim.RAdam(list(self.feature_vit.parameters()) + list(self.multi_view_model.parameters()), 
-                                    lr=0.01, weight_decay=0.01)
+        self.optimizer = optim.AdamW(list(self.feature_vit.parameters()) + list(self.multi_view_model.parameters()), 
+                                    lr=1e-5, weight_decay=0.01)
         self.scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(self.optimizer, T_0=10, eta_min=1e-6)
         
         # Mixed precision training
