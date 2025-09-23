@@ -25,7 +25,7 @@ class Trainer:
         self.criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
         self.optimizer = optim.AdamW(list(self.feature_vit.parameters()) + list(self.multi_view_model.parameters()), 
                                     lr=0.001, weight_decay=0.01)
-        self.scheduler = optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=50, eta_min=1e-6)
+        self.scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(self.optimizer, T_0=10, eta_min=1e-6)
         
         # Mixed precision training
         self.use_amp = use_amp and self.device.type == 'cuda'
@@ -87,16 +87,21 @@ class Trainer:
     
     def train(self, num_epochs=10):
         if self.train_loader is None or self.test_loader is None:
-            raise ValueError("Train and test loaders must be set before training.")
+            self.get_train_loader(
+                "data/ModelNet40-12-split/train", batch_size=1, shuffle=True, num_workers=4
+            )
+            self.get_test_loader(
+                "data/ModelNet40-12-split/test", batch_size=1, shuffle=False, num_workers=4
+            )
 
         best_accuracy = 0.0
         for epoch in range(num_epochs):
             self.feature_vit.eval() if self.freeze_feat_vit else self.feature_vit.train()
             self.multi_view_model.eval() if self.freeze_class_model else self.multi_view_model.train()
             running_loss = 0.0
-            
+
             progress_bar = tqdm(self.train_loader, desc=f"Epoch {epoch+1}/{num_epochs}")
-            for batch_idx, (label, data, _) in enumerate(progress_bar):
+            for label, data, _ in progress_bar:
                 label = label.to(self.device, non_blocking=True)
                 data = data.to(self.device, non_blocking=True)
                 B, V, C, H, W = data.shape
@@ -130,26 +135,23 @@ class Trainer:
 
                 running_loss += loss.item()
                 progress_bar.set_postfix(loss=loss.item(), lr=self.optimizer.param_groups[0]['lr'])
-                
-                # Memory cleanup every 10 batches
-                if batch_idx % 10 == 0:
-                    if self.device.type == 'cuda':
-                        torch.cuda.empty_cache()
-                    elif self.device.type == 'mps':
-                        torch.mps.empty_cache()
-                    gc.collect()
 
             self.scheduler.step()
             avg_loss = running_loss / len(self.train_loader)
             test_accuracy, class_accuracy = self.get_test_accuracy()
-            
+
             # Save best model
             if test_accuracy > best_accuracy:
                 best_accuracy = test_accuracy
                 self.save_model("best_feature_vit.pth", "best_multi_view_model.pth")
-            
+
             print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {avg_loss:.4f}, Test Accuracy: {test_accuracy:.4f}, "
                   f"Class Accuracy: {class_accuracy:.4f}, Best: {best_accuracy:.4f}, LR: {self.optimizer.param_groups[0]['lr']:.6f}")
+            if self.device.type == 'cuda':
+                torch.cuda.empty_cache()
+            elif self.device.type == 'mps':
+                torch.mps.empty_cache()
+            gc.collect()
 
         print("Training complete.")
     
