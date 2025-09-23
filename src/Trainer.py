@@ -68,7 +68,7 @@ class Trainer:
                 B, V, C, H, W = data.shape
                 data = data.view(B * V, C, H, W)
                 
-                with autocast(enabled=self.use_amp):
+                with autocast(enabled=self.use_amp, device_type=self.device.type):
                     features = self.feature_vit(data)
                     cls_tokens = features[:, 0, :]
                     cls_tokens = cls_tokens.view(B, V, -1)
