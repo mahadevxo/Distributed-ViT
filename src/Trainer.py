@@ -4,6 +4,7 @@ import torch
 from torch.utils.data import DataLoader
 import torch.nn as nn
 import torch.optim as optim
+from tqdm import tqdm
 
 class Trainer:
     def __init__(self, num_views=12, num_classes=40, embed_dim=768, num_heads=4, num_layers=2, freeze_feat_vit=False, freeze_class_model=False):
@@ -48,7 +49,7 @@ class Trainer:
         correct = 0
         total = 0
         with torch.no_grad():
-            for label, data, _ in self.test_loader:
+            for label, data, _ in tqdm(self.test_loader, desc="Testing", leave=False):
                 label = label.to(self.device)
                 data = data.to(self.device)
                 B, V, C, H, W = data.shape
@@ -73,10 +74,13 @@ class Trainer:
             raise ValueError("Train and test loaders must be set before training.")
 
         for epoch in range(num_epochs):
+            print(f"Epoch {epoch+1}/{num_epochs}")
             self.feature_vit.eval() if self.freeze_feat_vit else self.feature_vit.train()
             self.multi_view_model.eval() if self.freeze_class_model else self.multi_view_model.train()
             running_loss = 0.0
-            for label, data, _ in self.train_loader:
+            
+            progress_bar = tqdm(self.train_loader, desc=f"Epoch {epoch+1}/{num_epochs}")
+            for label, data, _ in progress_bar:
                 label = label.to(self.device)
                 data = data.to(self.device)
                 B, V, C, H, W = data.shape
@@ -96,6 +100,7 @@ class Trainer:
                 self.optimizer.step()
 
                 running_loss += loss.item()
+                progress_bar.set_postfix(loss=loss.item())
 
             avg_loss = running_loss / len(self.train_loader)
             test_accuracy, class_accuracy = self.get_test_accuracy()
