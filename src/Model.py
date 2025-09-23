@@ -1,7 +1,6 @@
 import torch
 import torchvision.models as models
 
-
 class Feature_ViT(torch.nn.Module):
     def __init__(self, num_views=12):
         super(Feature_ViT, self).__init__()

@@ -108,13 +108,13 @@ class Trainer:
                 self.optimizer.zero_grad()
 
                 if self.use_amp:
-                    with torch.cuda.amp.autocast():
+                    with torch.amp.autocast(device_type=self.device.type):
                         features = self.feature_vit(data)
                         cls_tokens = features[:, 0, :]
                         cls_tokens = cls_tokens.view(B, V, -1)
                         outputs = self.multi_view_model(cls_tokens)
                         loss = self.criterion(outputs, label)
-                    
+
                     self.scaler.scale(loss).backward()
                     self.scaler.unscale_(self.optimizer)
                     torch.nn.utils.clip_grad_norm_(
@@ -129,7 +129,7 @@ class Trainer:
                     cls_tokens = cls_tokens.view(B, V, -1)
                     outputs = self.multi_view_model(cls_tokens)
                     loss = self.criterion(outputs, label)
-                    
+
                     loss.backward()
                     torch.nn.utils.clip_grad_norm_(
                         list(self.feature_vit.parameters()) + list(self.multi_view_model.parameters()), 
@@ -142,21 +142,18 @@ class Trainer:
 
             self.scheduler.step()
             avg_loss = running_loss / len(self.train_loader)
-            
-            # Test every 5 epochs to save time
-            if epoch % 5 == 0 or epoch == num_epochs - 1:
-                test_accuracy, class_accuracy = self.get_test_accuracy()
-                
-                # Save best model
-                if test_accuracy > best_accuracy:
-                    best_accuracy = test_accuracy
-                    # self.save_model("best_feature_vit.pth", "best_multi_view_model.pth")
 
-                print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {avg_loss:.4f}, Test Accuracy: {test_accuracy:.4f}, "
-                      f"Class Accuracy: {class_accuracy:.4f}, Best: {best_accuracy:.4f}, LR: {self.optimizer.param_groups[0]['lr']:.6f}")
+            test_accuracy, class_accuracy = self.get_test_accuracy()
+
+            # Save best model
+            if test_accuracy > best_accuracy:
+                best_accuracy = test_accuracy
+                print(
+                    f"Epoch [{epoch + 1}/{num_epochs}], Loss: {avg_loss:.4f}, Test Accuracy: {best_accuracy:.4f}, Class Accuracy: {class_accuracy:.4f}, Best: {best_accuracy:.4f}, LR: {self.optimizer.param_groups[0]['lr']:.6f}"
+                )
             else:
                 print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {avg_loss:.4f}, LR: {self.optimizer.param_groups[0]['lr']:.6f}")
-                
+
             if self.device.type == 'cuda':
                 torch.cuda.empty_cache()
             elif self.device.type == 'mps':
