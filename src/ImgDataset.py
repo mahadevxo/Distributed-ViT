@@ -52,7 +52,7 @@ class MultiviewImgDataset(torch.utils.data.Dataset):
             ])
         else:
             self.transform = transforms.Compose([
-                transforms.Resize((224, 224)),
+                transforms.RandomResizedCrop(224, scale=(0.8, 1.0)),
                 transforms.RandomHorizontalFlip(),
                 transforms.ToTensor(),
                 transforms.Normalize(mean=[0.485, 0.456, 0.406],

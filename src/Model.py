@@ -5,11 +5,11 @@ import torchvision.models as models
 class Feature_ViT(torch.nn.Module):
     def __init__(self, num_views=12):
         super(Feature_ViT, self).__init__()
-        base_model = models.vit_b_16(weights=models.ViT_B_16_Weights.IMAGENET1K_V1)
+        base_model = models.vit_l_16(weights=models.ViT_L_16_Weights.IMAGENET1K_V1)
         self.num_views = num_views
         self.conv_proj = base_model.conv_proj
         self.encoder = base_model.encoder
-        self.embed_dim = 768
+        self.embed_dim = 1024
         
         if hasattr(base_model, 'class_token'):
             self.class_token = base_model.class_token

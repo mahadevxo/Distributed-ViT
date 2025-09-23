@@ -4,13 +4,13 @@ import torch
 from torch.utils.data import DataLoader
 import torch.nn as nn
 import torch.optim as optim
-from torch.amp import GradScaler, autocast
+from torch.amp import GradScaler
 from tqdm import tqdm
 import gc
 
 class Trainer:
-    def __init__(self, num_views=12, num_classes=40, embed_dim=768, num_heads=4, num_layers=2, 
-                 freeze_feat_vit=False, freeze_class_model=False, use_amp=True):
+    def __init__(self, num_views=12, num_classes=40, embed_dim=1024, num_heads=4, num_layers=2, 
+                 freeze_feat_vit=False, freeze_class_model=False, use_amp=False):
         self.num_views = num_views
         self.num_classes = num_classes
         self.embed_dim = embed_dim
@@ -68,11 +68,10 @@ class Trainer:
                 B, V, C, H, W = data.shape
                 data = data.view(B * V, C, H, W)
                 
-                with autocast(enabled=self.use_amp, device_type=self.device.type):
-                    features = self.feature_vit(data)
-                    cls_tokens = features[:, 0, :]
-                    cls_tokens = cls_tokens.view(B, V, -1)
-                    outputs = self.multi_view_model(cls_tokens)
+                features = self.feature_vit(data)
+                cls_tokens = features[:, 0, :]
+                cls_tokens = cls_tokens.view(B, V, -1)
+                outputs = self.multi_view_model(cls_tokens)
                 
                 _, predicted = torch.max(outputs.data, 1)
                 total += label.size(0)
@@ -109,12 +108,11 @@ class Trainer:
 
                 self.optimizer.zero_grad()
 
-                with autocast(enabled=self.use_amp, device_type=self.device.type):
-                    features = self.feature_vit(data)
-                    cls_tokens = features[:, 0, :]
-                    cls_tokens = cls_tokens.view(B, V, -1)
-                    outputs = self.multi_view_model(cls_tokens)
-                    loss = self.criterion(outputs, label)
+                features = self.feature_vit(data)
+                cls_tokens = features[:, 0, :]
+                cls_tokens = cls_tokens.view(B, V, -1)
+                outputs = self.multi_view_model(cls_tokens)
+                loss = self.criterion(outputs, label)
 
                 if self.use_amp:
                     self.scaler.scale(loss).backward()
@@ -139,11 +137,6 @@ class Trainer:
             self.scheduler.step()
             avg_loss = running_loss / len(self.train_loader)
             test_accuracy, class_accuracy = self.get_test_accuracy()
-
-            # Save best model
-            if test_accuracy > best_accuracy:
-                best_accuracy = test_accuracy
-                self.save_model("best_feature_vit.pth", "best_multi_view_model.pth")
 
             print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {avg_loss:.4f}, Test Accuracy: {test_accuracy:.4f}, "
                   f"Class Accuracy: {class_accuracy:.4f}, Best: {best_accuracy:.4f}, LR: {self.optimizer.param_groups[0]['lr']:.6f}")
