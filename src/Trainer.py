@@ -28,7 +28,7 @@ class Trainer:
         self.scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(self.optimizer, T_0=10, eta_min=1e-6)
         
         # Mixed precision training
-        self.use_amp = use_amp and self.device.type == 'cuda'
+        self.use_amp = use_amp or (self.device.type == 'cuda')  # Enable AMP by default on CUDA
         self.scaler = GradScaler() if self.use_amp else None
         
         self.train_loader, self.test_loader = None, None
@@ -42,16 +42,18 @@ class Trainer:
         self.freeze_feat_vit = freeze_feat_vit
         self.freeze_class_model = freeze_class_model
         
-    def get_train_loader(self, train_dir, batch_size=12, shuffle=True, num_workers=8):
+    def get_train_loader(self, train_dir, batch_size=16, shuffle=True, num_workers=8):
         train_set = MultiviewImgDataset(train_dir, num_views=self.num_views)
         self.train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=shuffle, 
-                                     num_workers=num_workers, pin_memory=True, persistent_workers=True)
+                                     num_workers=num_workers, pin_memory=True, persistent_workers=True,
+                                     prefetch_factor=4)
         return self.train_loader
 
     def get_test_loader(self, test_dir, batch_size=32, shuffle=False, num_workers=8):
         test_set = MultiviewImgDataset(test_dir, num_views=self.num_views, test_mode=True)
         self.test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=shuffle, 
-                                    num_workers=num_workers, pin_memory=True, persistent_workers=True)
+                                    num_workers=num_workers, pin_memory=True, persistent_workers=True,
+                                    prefetch_factor=2)
         return self.test_loader
     
     def get_test_accuracy(self):
@@ -105,13 +107,14 @@ class Trainer:
 
                 self.optimizer.zero_grad()
 
-                features = self.feature_vit(data)
-                cls_tokens = features[:, 0, :]
-                cls_tokens = cls_tokens.view(B, V, -1)
-                outputs = self.multi_view_model(cls_tokens)
-                loss = self.criterion(outputs, label)
-
                 if self.use_amp:
+                    with torch.cuda.amp.autocast():
+                        features = self.feature_vit(data)
+                        cls_tokens = features[:, 0, :]
+                        cls_tokens = cls_tokens.view(B, V, -1)
+                        outputs = self.multi_view_model(cls_tokens)
+                        loss = self.criterion(outputs, label)
+                    
                     self.scaler.scale(loss).backward()
                     self.scaler.unscale_(self.optimizer)
                     torch.nn.utils.clip_grad_norm_(
@@ -121,6 +124,12 @@ class Trainer:
                     self.scaler.step(self.optimizer)
                     self.scaler.update()
                 else:
+                    features = self.feature_vit(data)
+                    cls_tokens = features[:, 0, :]
+                    cls_tokens = cls_tokens.view(B, V, -1)
+                    outputs = self.multi_view_model(cls_tokens)
+                    loss = self.criterion(outputs, label)
+                    
                     loss.backward()
                     torch.nn.utils.clip_grad_norm_(
                         list(self.feature_vit.parameters()) + list(self.multi_view_model.parameters()), 
@@ -133,15 +142,21 @@ class Trainer:
 
             self.scheduler.step()
             avg_loss = running_loss / len(self.train_loader)
-            test_accuracy, class_accuracy = self.get_test_accuracy()
+            
+            # Test every 5 epochs to save time
+            if epoch % 5 == 0 or epoch == num_epochs - 1:
+                test_accuracy, class_accuracy = self.get_test_accuracy()
+                
+                # Save best model
+                if test_accuracy > best_accuracy:
+                    best_accuracy = test_accuracy
+                    # self.save_model("best_feature_vit.pth", "best_multi_view_model.pth")
 
-            # Save best model
-            if test_accuracy > best_accuracy:
-                best_accuracy = test_accuracy
-                # self.save_model("best_feature_vit.pth", "best_multi_view_model.pth")
-
-            print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {avg_loss:.4f}, Test Accuracy: {test_accuracy:.4f}, "
-                  f"Class Accuracy: {class_accuracy:.4f}, Best: {best_accuracy:.4f}, LR: {self.optimizer.param_groups[0]['lr']:.6f}")
+                print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {avg_loss:.4f}, Test Accuracy: {test_accuracy:.4f}, "
+                      f"Class Accuracy: {class_accuracy:.4f}, Best: {best_accuracy:.4f}, LR: {self.optimizer.param_groups[0]['lr']:.6f}")
+            else:
+                print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {avg_loss:.4f}, LR: {self.optimizer.param_groups[0]['lr']:.6f}")
+                
             if self.device.type == 'cuda':
                 torch.cuda.empty_cache()
             elif self.device.type == 'mps':
