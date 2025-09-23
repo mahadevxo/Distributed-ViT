@@ -22,13 +22,13 @@ class Trainer:
         self.multi_view_model = MultiView_Classifier(num_views=num_views, num_classes=num_classes, 
                                                      embed_dim=embed_dim, num_heads=num_heads,
                                                      num_layers=num_layers).to(self.device)
-        self.criterion = nn.CrossEntropyLoss()
+        self.criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
         self.optimizer = optim.AdamW(list(self.feature_vit.parameters()) + list(self.multi_view_model.parameters()), 
                                     lr=1e-5, weight_decay=0.01)
-        self.scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(self.optimizer, T_0=10, eta_min=1e-6)
+        self.scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(self.optimizer, T_0=50, eta_min=1e-6)
         
         # Mixed precision training
-        self.use_amp = use_amp or (self.device.type == 'cuda')  # Enable AMP by default on CUDA
+        self.use_amp = use_amp or (self.device.type == 'cuda')
         self.scaler = GradScaler() if self.use_amp else None
         
         self.train_loader, self.test_loader = None, None
@@ -88,7 +88,7 @@ class Trainer:
         average_class_accuracy = class_accuracies[total_class > 0].mean().item() if (total_class > 0).any() else 0.0
         return correct / total, average_class_accuracy
     
-    def train(self, num_epochs=10):
+    def train(self, num_epochs=10):  # sourcery skip: low-code-quality
         if self.train_loader is None or self.test_loader is None:
             raise ValueError("Train and test loaders must be set before training.")
 
@@ -147,6 +147,7 @@ class Trainer:
 
             if test_accuracy > best_accuracy:
                 best_accuracy = test_accuracy
+                self.save_model()
             print(
                 f"Epoch [{epoch + 1}/{num_epochs}], Loss: {avg_loss:.4f}, Test Accuracy: {best_accuracy:.4f}, Class Accuracy: {class_accuracy:.4f}, Best: {best_accuracy:.4f}, LR: {self.optimizer.param_groups[0]['lr']:.6f}"
             )

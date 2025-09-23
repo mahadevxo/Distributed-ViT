@@ -52,8 +52,7 @@ class MultiviewImgDataset(torch.utils.data.Dataset):
             ])
         else:
             self.transform = transforms.Compose([
-                transforms.RandomResizedCrop(224, scale=(0.8, 1.0)),
-                transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
+                transforms.RandomResizedCrop(224, 224),
                 transforms.RandomHorizontalFlip(),
                 transforms.ToTensor(),
                 transforms.Normalize(mean=[0.485, 0.456, 0.406],
@@ -119,7 +118,7 @@ class SingleImgDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, idx):
         path = self.filepaths[idx]
-        class_name = Path(path).parents[1].name  # root/class/object/file.png
+        class_name = Path(path).parents[1].name
         class_id = self.class_names.index(class_name)
         im = Image.open(path).convert('RGB')
         im = self.transform(im)
