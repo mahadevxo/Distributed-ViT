@@ -48,7 +48,7 @@ class Trainer:
                                      num_workers=num_workers, pin_memory=True, persistent_workers=True)
         return self.train_loader
 
-    def get_test_loader(self, test_dir, batch_size=12, shuffle=False, num_workers=8):
+    def get_test_loader(self, test_dir, batch_size=32, shuffle=False, num_workers=8):
         test_set = MultiviewImgDataset(test_dir, num_views=self.num_views, test_mode=True)
         self.test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=shuffle, 
                                     num_workers=num_workers, pin_memory=True, persistent_workers=True)
@@ -81,7 +81,9 @@ class Trainer:
                     if predicted[i] == label[i]:
                         correct_class[label[i]] += 1
                         
-        average_class_accuracy = (correct_class / total_class).mean().item()
+        # Avoid division by zero for classes with no samples
+        class_accuracies = torch.where(total_class > 0, correct_class / total_class, torch.zeros_like(correct_class))
+        average_class_accuracy = class_accuracies[total_class > 0].mean().item() if (total_class > 0).any() else 0.0
         return correct / total, average_class_accuracy
     
     def train(self, num_epochs=10):
@@ -132,6 +134,11 @@ class Trainer:
             self.scheduler.step()
             avg_loss = running_loss / len(self.train_loader)
             test_accuracy, class_accuracy = self.get_test_accuracy()
+
+            # Save best model
+            if test_accuracy > best_accuracy:
+                best_accuracy = test_accuracy
+                # self.save_model("best_feature_vit.pth", "best_multi_view_model.pth")
 
             print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {avg_loss:.4f}, Test Accuracy: {test_accuracy:.4f}, "
                   f"Class Accuracy: {class_accuracy:.4f}, Best: {best_accuracy:.4f}, LR: {self.optimizer.param_groups[0]['lr']:.6f}")
