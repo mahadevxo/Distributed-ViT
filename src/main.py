@@ -5,6 +5,8 @@ if __name__ == "__main__":
                       num_heads=16, num_layers=4, freeze_feat_vit=False,
                       freeze_class_model=False, use_amp=False)
     
+    trainer.get_train_loader("data/ModelNet40-12-split/train", batch_size=8, shuffle=True, num_workers=4)
+    trainer.get_test_loader("data/ModelNet40-12-split/test", batch_size=8, shuffle=False, num_workers=4)
     trainer.train(num_epochs=50)
     
     test_accuracy, class_accuracy = trainer.get_test_accuracy()

@@ -86,12 +86,7 @@ class Trainer:
     
     def train(self, num_epochs=10):
         if self.train_loader is None or self.test_loader is None:
-            self.get_train_loader(
-                "data/ModelNet40-12-split/train", batch_size=1, shuffle=True, num_workers=4
-            )
-            self.get_test_loader(
-                "data/ModelNet40-12-split/test", batch_size=1, shuffle=False, num_workers=4
-            )
+            raise ValueError("Train and test loaders must be set before training.")
 
         best_accuracy = 0.0
         for epoch in range(num_epochs):
