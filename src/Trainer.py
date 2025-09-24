@@ -157,7 +157,8 @@ class Trainer:
                 self.save_model()
                 
             print(
-                f"Epoch [{epoch + 1}/{num_epochs}], Loss: {avg_loss:.4f}, Test Accuracy: {test_accuracy:.4f}, Class Accuracy: {class_accuracy:.4f}, Best: {best_accuracy:.4f}, LR: {self.optimizer.param_groups[0]['lr']:.6f}"
+                f"Epoch [{epoch + 1}/{num_epochs}], Loss: {avg_loss:.4f}, Test Accuracy: {test_accuracy:.4f}, \
+                    Class Accuracy: {class_accuracy:.4f}, Best: {best_accuracy:.4f}, LR: {self.optimizer.param_groups[0]['lr']:.6f}"
             )
 
             if self.device.type == 'cuda':

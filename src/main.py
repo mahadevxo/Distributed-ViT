@@ -1,7 +1,7 @@
 from Trainer import Trainer
 import torch
 
-if __name__ == "__main__":
+def main():
     trainer = Trainer(num_views=12, num_classes=40, embed_dim=1024, 
                       num_heads=16, num_layers=4, freeze_feat_vit=False,
                       freeze_class_model=False, use_amp=True)
@@ -22,3 +22,7 @@ if __name__ == "__main__":
         print("Models saved successfully.")
     
     trainer.save_model()
+
+if __name__ == "__main__":
+    print("Starting training process...")
+    main()
