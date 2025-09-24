@@ -162,7 +162,7 @@ class Trainer:
                 self.save_model()
                 
             print(
-                f"Epoch [{epoch + 1}/{num_epochs}], Loss: {avg_loss:.4f}, Average Accuracy: {test_accuracy:.4f}, Mean Class Accuracy: {class_accuracy:.4f}, Best: {best_accuracy:.4f}, LR: {self.optimizer.param_groups[0]['lr']:.6f}"
+                f"Epoch [{epoch + 1}/{num_epochs}], Loss: {avg_loss:.4f}, Average Accuracy: {test_accuracy:.4f}, Mean Class Accuracy: {class_accuracy:.4f}, Best: {best_accuracy:.4f}, LR Feature VIT: {self.optimizer.param_groups[0]['lr']:.6f}, LR Multi-View Model: {self.optimizer.param_groups[1]['lr']:.6f}"
             )
 
             if self.device.type == 'cuda':
@@ -173,7 +173,7 @@ class Trainer:
 
         print("Training complete.")
     
-    def save_model(self, feat_vit_path="feature_vit-.pth", class_model_path="multi_view_model.pth"):
+    def save_model(self, feat_vit_path="feature_vit.pth", class_model_path="multi_view_model.pth"):
         torch.save(self.feature_vit.state_dict(), feat_vit_path)
         torch.save(self.multi_view_model.state_dict(), class_model_path)
         print("Models saved successfully.")
