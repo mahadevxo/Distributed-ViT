@@ -27,12 +27,12 @@ class Trainer:
         self.criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
         
         optimizer_params = [
-            {'params': self.feature_vit.parameters(), 'lr': 1e-4},
-            {'params': self.multi_view_model.parameters(), 'lr': 1e-3}
+            {'params': self.feature_vit.parameters(), 'lr': 1e-5},
+            {'params': self.multi_view_model.parameters(), 'lr': 1e-4}
         ]
         self.optimizer = optim.AdamW(optimizer_params, weight_decay=0.01)
 
-        self.scheduler = optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=50, eta_min=1e-6)
+        self.scheduler = None
         
         # Mixed precision training
         self.use_amp = use_amp or (self.device.type == 'cuda')
@@ -100,6 +100,8 @@ class Trainer:
     def train(self, num_epochs=10):  # sourcery skip: low-code-quality
         if self.train_loader is None or self.test_loader is None:
             raise ValueError("Train and test loaders must be set before training.")
+        
+        self.scheduler = optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=num_epochs, eta_min=1e-6)
         best_accuracy = 0.0
         for epoch in range(num_epochs):
             print("-"*100)
