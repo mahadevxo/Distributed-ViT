@@ -29,7 +29,7 @@ class Trainer:
         self.optimizer = optim.AdamW(list(self.feature_vit.parameters()) + list(self.multi_view_model.parameters()), 
                                     lr=1e-5, weight_decay=0.01)
         
-        self.scheduler = optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_0=50, eta_min=1e-6)
+        self.scheduler = optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=50, eta_min=1e-6)
         
         # Mixed precision training
         self.use_amp = use_amp or (self.device.type == 'cuda')
