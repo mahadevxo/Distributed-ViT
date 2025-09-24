@@ -5,17 +5,15 @@ def main():
     test_data_dir = "../data/ModelNet40-12-split/test"
 
     trainer = Trainer(num_views=12, num_classes=40, embed_dim=768, 
-                     num_heads=12, num_layers=4, 
+                     num_heads=8, num_layers=2,  # Fewer layers initially
                      freeze_feat_vit=False,
                      use_amp=True)
     
-    # Slightly higher learning rates
-    trainer.optimizer.param_groups[0]['lr'] = 1e-5  # featues
-    trainer.optimizer.param_groups[1]['lr'] = 1e-4  # classifier
-
-    # Larger batch size for more stable training
-    trainer.get_train_loader(train_data_dir, batch_size=16, shuffle=True, num_workers=8)
-    trainer.get_test_loader(test_data_dir, batch_size=32, shuffle=False, num_workers=8)
+    # Don't override learning rates - use the ones set in Trainer
+    
+    # Smaller batch size for more gradient updates
+    trainer.get_train_loader(train_data_dir, batch_size=8, shuffle=True, num_workers=4)
+    trainer.get_test_loader(test_data_dir, batch_size=16, shuffle=False, num_workers=4)
 
     try:
         trainer.train(num_epochs=60)

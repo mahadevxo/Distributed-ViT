@@ -24,13 +24,18 @@ class Trainer:
                                                      embed_dim=embed_dim, num_heads=num_heads,
                                                      num_layers=num_layers).to(self.device)
         
-        self.criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
+        # Better weight initialization for classifier
+        self._init_classifier_weights()
         
+        # Less aggressive label smoothing initially
+        self.criterion = nn.CrossEntropyLoss(label_smoothing=0.05)
+        
+        # Better learning rates - higher for classifier
         optimizer_params = [
-            {'params': self.feature_vit.parameters(), 'lr': 1e-5},
-            {'params': self.multi_view_model.parameters(), 'lr': 1e-4}
+            {'params': self.feature_vit.parameters(), 'lr': 5e-6},  # Lower for pretrained features
+            {'params': self.multi_view_model.parameters(), 'lr': 3e-4}  # Higher for new classifier
         ]
-        self.optimizer = optim.AdamW(optimizer_params, weight_decay=0.01)
+        self.optimizer = optim.AdamW(optimizer_params, weight_decay=0.05, betas=(0.9, 0.999))
 
         self.scheduler = None
         
@@ -49,6 +54,14 @@ class Trainer:
         self.freeze_feat_vit = freeze_feat_vit
         self.freeze_class_model = freeze_class_model
         
+    def _init_classifier_weights(self):
+        """Better initialization for the classifier head"""
+        for module in self.multi_view_model.classifier.modules():
+            if isinstance(module, nn.Linear):
+                nn.init.xavier_uniform_(module.weight)
+                if module.bias is not None:
+                    nn.init.constant_(module.bias, 0)
+    
     def get_train_loader(self, train_dir, batch_size=16, shuffle=True, num_workers=8):
         train_set = MultiviewImgDataset(train_dir, num_views=self.num_views)
         self.train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=shuffle, 
@@ -101,18 +114,25 @@ class Trainer:
         if self.train_loader is None or self.test_loader is None:
             raise ValueError("Train and test loaders must be set before training.")
         
-        # Warmup + Cosine schedule
-        self.scheduler = optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=num_epochs, eta_min=1e-7)
+        # Warmup scheduler
+        warmup_epochs = 5
+        warmup_scheduler = optim.lr_scheduler.LinearLR(self.optimizer, start_factor=0.1, end_factor=1.0, total_iters=warmup_epochs)
+        main_scheduler = optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=num_epochs-warmup_epochs, eta_min=1e-7)
         
         best_accuracy = 0.0
+        patience = 10
+        no_improve_epochs = 0
+        
         for epoch in range(num_epochs):
             print("-"*100)
             self.feature_vit.train()
             self.multi_view_model.train()
             running_loss = 0.0
+            correct_train = 0
+            total_train = 0
 
             progress_bar = tqdm(self.train_loader, desc=f"Epoch {epoch+1}/{num_epochs}")
-            for label, data, _ in progress_bar:
+            for batch_idx, (label, data, _) in enumerate(progress_bar):
                 label = label.to(self.device, non_blocking=True)
                 data = data.to(self.device, non_blocking=True)
                 B, V, C, H, W = data.shape
@@ -129,10 +149,11 @@ class Trainer:
                         loss = self.criterion(outputs, label)
 
                     self.scaler.scale(loss).backward()
+                    # Less aggressive gradient clipping
                     self.scaler.unscale_(self.optimizer)
                     torch.nn.utils.clip_grad_norm_(
                         list(self.feature_vit.parameters()) + list(self.multi_view_model.parameters()), 
-                        max_norm=1.0
+                        max_norm=2.0
                     )
                     self.scaler.step(self.optimizer)
                     self.scaler.update()
@@ -146,25 +167,47 @@ class Trainer:
                     loss.backward()
                     torch.nn.utils.clip_grad_norm_(
                         list(self.feature_vit.parameters()) + list(self.multi_view_model.parameters()), 
-                        max_norm=1.0
+                        max_norm=2.0
                     )
                     self.optimizer.step()
 
+                # Track training accuracy
+                _, predicted = torch.max(outputs, 1)
+                total_train += label.size(0)
+                correct_train += (predicted == label).sum().item()
                 
                 running_loss += loss.item()
-                progress_bar.set_postfix(loss=loss.item(), lr=self.optimizer.param_groups[1]['lr'])
+                train_acc = correct_train / total_train
+                progress_bar.set_postfix(loss=loss.item(), train_acc=f"{train_acc:.3f}", lr=self.optimizer.param_groups[1]['lr'])
 
-            self.scheduler.step()
+            # Learning rate scheduling
+            if epoch < warmup_epochs:
+                warmup_scheduler.step()
+            else:
+                main_scheduler.step()
+                
             avg_loss = running_loss / len(self.train_loader)
+            train_accuracy = correct_train / total_train
             test_accuracy, class_accuracy = self.get_test_accuracy()
             
+            # Early stopping and model saving
             if class_accuracy > best_accuracy:
                 best_accuracy = class_accuracy
+                no_improve_epochs = 0
                 self.save_model("feature_vit_best.pth", "multi_view_model_best.pth")
+            else:
+                no_improve_epochs += 1
                 
             print(
-                f"Epoch [{epoch + 1}/{num_epochs}], Loss: {avg_loss:.4f}, Avg Acc: {test_accuracy:.4f}, Class Acc: {class_accuracy:.4f}, Best: {best_accuracy:.4f}, LR: {self.optimizer.param_groups[1]['lr']:.6f}"
+                f"Epoch [{epoch + 1}/{num_epochs}], Loss: {avg_loss:.4f}, Train Acc: {train_accuracy:.4f}, "
+                f"Test Acc: {test_accuracy:.4f}, Class Acc: {class_accuracy:.4f}, Best: {best_accuracy:.4f}, "
+                f"LR: {self.optimizer.param_groups[1]['lr']:.6f}"
             )
+            
+            # Early stopping
+            if no_improve_epochs >= patience:
+                print(f"Early stopping after {patience} epochs without improvement")
+                break
 
             if self.device.type == 'cuda':
                 torch.cuda.empty_cache()

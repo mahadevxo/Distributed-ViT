@@ -40,25 +40,22 @@ class MultiView_Classifier(torch.nn.Module):
         # CLS token for aggregation
         self.cls_token = torch.nn.Parameter(torch.randn(1, 1, embed_dim))
         
-        # More sophisticated transformer
+        # Simpler transformer initially
         encoder_layer = torch.nn.TransformerEncoderLayer(
             d_model=embed_dim, 
             nhead=num_heads, 
-            dim_feedforward=embed_dim * 4,  # Larger FFN
-            dropout=0.1,
+            dim_feedforward=embed_dim * 2,  # Smaller FFN initially
+            dropout=0.05,  # Less dropout
             activation='gelu',
             batch_first=True
         )
         self.view_transformer = torch.nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
 
-        # Better classifier head
+        # Simpler classifier head initially
         self.classifier = torch.nn.Sequential(
             torch.nn.LayerNorm(embed_dim),
-            torch.nn.Dropout(0.1),
-            torch.nn.Linear(embed_dim, embed_dim // 2),
-            torch.nn.GELU(),
-            torch.nn.Dropout(0.1),
-            torch.nn.Linear(embed_dim // 2, num_classes)
+            torch.nn.Dropout(0.05),  # Less dropout
+            torch.nn.Linear(embed_dim, num_classes)  # Direct classification
         )
 
     def forward(self, view_features):
