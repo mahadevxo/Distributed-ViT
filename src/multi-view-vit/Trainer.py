@@ -90,7 +90,7 @@ class Trainer:
                     if predicted[i] == label[i]:
                         correct_class[label[i]] += 1
                         
-        # Avoid division by zero for classes with no samples
+        
         class_accuracies = torch.where(total_class > 0, correct_class / total_class, torch.zeros_like(correct_class))
         average_class_accuracy = class_accuracies[total_class > 0].mean().item() if (total_class > 0).any() else 0.0
         return correct / total, average_class_accuracy
