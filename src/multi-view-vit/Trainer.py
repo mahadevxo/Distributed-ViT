@@ -102,6 +102,7 @@ class Trainer:
         if self.train_loader is None or self.test_loader is None:
             raise ValueError("Train and test loaders must be set before training.")
 
+        print("-"*100)
         best_accuracy = 0.0
         for epoch in range(num_epochs):
             self.feature_vit.eval() if self.freeze_feat_vit else self.feature_vit.train()
@@ -160,8 +161,8 @@ class Trainer:
                 self.save_model()
                 
             print(
-                f"Epoch [{epoch + 1}/{num_epochs}], Loss: {avg_loss:.4f}, Test Accuracy: {test_accuracy:.4f}, \
-                    Class Accuracy: {class_accuracy:.4f}, Best: {best_accuracy:.4f}, LR: {self.optimizer.param_groups[0]['lr']:.6f}"
+                f"Epoch [{epoch + 1}/{num_epochs}], Loss: {avg_loss:.4f}, Average Accuracy: {test_accuracy:.4f}, \
+                    Mean Class Accuracy: {class_accuracy:.4f}, Best: {best_accuracy:.4f}, LR: {self.optimizer.param_groups[0]['lr']:.6f}"
             )
 
             if self.device.type == 'cuda':
