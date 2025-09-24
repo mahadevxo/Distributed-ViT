@@ -13,8 +13,8 @@ def main():
     trainer.optimizer.param_groups[0]['lr'] = 5e-6 
     trainer.optimizer.param_groups[1]['lr'] = 5e-5
 
-    trainer.get_train_loader(train_data_dir, batch_size=16, shuffle=True, num_workers=8)
-    trainer.get_test_loader(test_data_dir, batch_size=32, shuffle=False, num_workers=8)
+    trainer.get_train_loader(train_data_dir, batch_size=8, shuffle=True, num_workers=8)
+    trainer.get_test_loader(test_data_dir, batch_size=16, shuffle=False, num_workers=8)
 
     try:
         trainer.train(num_epochs=50)
