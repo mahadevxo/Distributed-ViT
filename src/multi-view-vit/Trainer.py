@@ -66,10 +66,12 @@ class Trainer:
     def get_test_accuracy(self):
         self.feature_vit.eval()
         self.multi_view_model.eval()
+        
         correct_class = torch.zeros(self.num_classes).to(self.device)
         total_class = torch.zeros(self.num_classes).to(self.device)
         correct = 0
         total = 0
+        
         with torch.no_grad():
             for label, data, _ in tqdm(self.test_loader, desc="Testing", leave=False):
                 label = label.to(self.device, non_blocking=True)
@@ -93,6 +95,7 @@ class Trainer:
         
         class_accuracies = torch.where(total_class > 0, correct_class / total_class, torch.zeros_like(correct_class))
         average_class_accuracy = class_accuracies[total_class > 0].mean().item() if (total_class > 0).any() else 0.0
+        
         return correct / total, average_class_accuracy
     
     def train(self, num_epochs=10):  # sourcery skip: low-code-quality
