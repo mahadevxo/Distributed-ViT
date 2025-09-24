@@ -102,13 +102,7 @@ class Trainer:
             raise ValueError("Train and test loaders must be set before training.")
         
         # Warmup + Cosine schedule
-        self.scheduler = optim.lr_scheduler.OneCycleLR(
-            self.optimizer, 
-            max_lr=[p['lr'] * 10 for p in self.optimizer.param_groups],  # 10x peak LR
-            epochs=num_epochs,
-            steps_per_epoch=len(self.train_loader),
-            pct_start=0.1  # 10% warmup
-        )
+        self.scheduler = optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=num_epochs, eta_min=1e-7)
         
         best_accuracy = 0.0
         for epoch in range(num_epochs):
@@ -156,12 +150,11 @@ class Trainer:
                     )
                     self.optimizer.step()
 
-                # Step scheduler every batch for OneCycleLR
-                self.scheduler.step()
                 
                 running_loss += loss.item()
                 progress_bar.set_postfix(loss=loss.item(), lr=self.optimizer.param_groups[1]['lr'])
 
+            self.scheduler.step()
             avg_loss = running_loss / len(self.train_loader)
             test_accuracy, class_accuracy = self.get_test_accuracy()
             
