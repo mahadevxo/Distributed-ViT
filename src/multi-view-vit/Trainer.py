@@ -28,7 +28,7 @@ class Trainer:
         
         optimizer_params = [
             {'params': self.feature_vit.parameters(), 'lr': 1e-5},
-            {'params': self.multi_view_model.parameters(), 'lr': 1e-4}
+            {'params': self.multi_view_model.parameters(), 'lr': 1e-6}
         ]
         self.optimizer = optim.AdamW(optimizer_params, weight_decay=0.01)
 
