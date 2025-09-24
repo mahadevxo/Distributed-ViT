@@ -101,10 +101,9 @@ class Trainer:
     def train(self, num_epochs=10):  # sourcery skip: low-code-quality
         if self.train_loader is None or self.test_loader is None:
             raise ValueError("Train and test loaders must be set before training.")
-
-        print("-"*100)
         best_accuracy = 0.0
         for epoch in range(num_epochs):
+            print("-"*100)
             self.feature_vit.eval() if self.freeze_feat_vit else self.feature_vit.train()
             self.multi_view_model.eval() if self.freeze_class_model else self.multi_view_model.train()
             running_loss = 0.0
