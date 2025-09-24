@@ -45,18 +45,24 @@ class MultiviewImgDataset(torch.utils.data.Dataset):
 
         if self.test_mode:
             self.transform = transforms.Compose([
-                transforms.Resize((224, 224)),
+                transforms.Resize((256, 256)),
+                transforms.CenterCrop(224),
                 transforms.ToTensor(),
                 transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225])
             ])
         else:
+            # Enhanced data augmentation
             self.transform = transforms.Compose([
-                transforms.Resize((224, 224)),
-                transforms.RandomHorizontalFlip(),
+                transforms.Resize((256, 256)),
+                transforms.RandomResizedCrop(224, scale=(0.8, 1.0), ratio=(0.9, 1.1)),
+                transforms.RandomHorizontalFlip(p=0.5),
+                transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
+                transforms.RandomRotation(10),
                 transforms.ToTensor(),
                 transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                     std=[0.229, 0.224, 0.225])
+                                     std=[0.229, 0.224, 0.225]),
+                transforms.RandomErasing(p=0.1, scale=(0.02, 0.1))
             ])
 
     def __len__(self):
@@ -99,18 +105,23 @@ class SingleImgDataset(torch.utils.data.Dataset):
 
         if self.test_mode:
             self.transform = transforms.Compose([
-                transforms.Resize((224, 224)),
+                transforms.Resize((256, 256)),
+                transforms.CenterCrop(224),
                 transforms.ToTensor(),
                 transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225])
             ])
         else:
             self.transform = transforms.Compose([
-                transforms.Resize((224, 224)),
-                transforms.RandomHorizontalFlip(),
+                transforms.Resize((256, 256)),
+                transforms.RandomResizedCrop(224, scale=(0.8, 1.0)),
+                transforms.RandomHorizontalFlip(p=0.5),
+                transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
+                transforms.RandomRotation(10),
                 transforms.ToTensor(),
                 transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                     std=[0.229, 0.224, 0.225])
+                                     std=[0.229, 0.224, 0.225]),
+                transforms.RandomErasing(p=0.1)
             ])
 
     def __len__(self):

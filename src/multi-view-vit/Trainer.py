@@ -7,6 +7,7 @@ import torch.optim as optim
 from torch.amp import GradScaler
 from tqdm import tqdm
 import gc
+import math
 
 class Trainer:
     def __init__(self, num_views=12, num_classes=40, embed_dim=768, num_heads=4, num_layers=2, 
@@ -26,11 +27,12 @@ class Trainer:
         
         self.criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
         
+        # Enhanced optimizer with different learning rates
         optimizer_params = [
-            {'params': self.feature_vit.parameters(), 'lr': 1e-5},
-            {'params': self.multi_view_model.parameters(), 'lr': 1e-6}
+            {'params': self.feature_vit.parameters(), 'lr': 5e-5, 'weight_decay': 0.05},
+            {'params': self.multi_view_model.parameters(), 'lr': 1e-4, 'weight_decay': 0.01}
         ]
-        self.optimizer = optim.AdamW(optimizer_params, weight_decay=0.01)
+        self.optimizer = optim.AdamW(optimizer_params, betas=(0.9, 0.999), eps=1e-8)
 
         self.scheduler = None
         
@@ -48,6 +50,11 @@ class Trainer:
         
         self.freeze_feat_vit = freeze_feat_vit
         self.freeze_class_model = freeze_class_model
+        
+        # Add gradient accumulation
+        self.gradient_accumulation_steps = 4
+        self.patience = 15
+        self.min_delta = 0.001
         
     def get_train_loader(self, train_dir, batch_size=16, shuffle=True, num_workers=8):
         train_set = MultiviewImgDataset(train_dir, num_views=self.num_views)
@@ -97,28 +104,41 @@ class Trainer:
         
         return correct / total, average_class_accuracy
     
+    def warmup_lr_scheduler(self, optimizer, warmup_epochs, total_epochs):
+        """Cosine annealing with warmup"""
+        def lr_lambda(epoch):
+            if epoch < warmup_epochs:
+                return epoch / warmup_epochs
+            else:
+                progress = (epoch - warmup_epochs) / (total_epochs - warmup_epochs)
+                return 0.5 * (1 + math.cos(math.pi * progress))
+        return optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+    
     def train(self, num_epochs=10):
         if self.train_loader is None or self.test_loader is None:
             raise ValueError("Train and test loaders must be set before training.")
         
         # Warmup + Cosine schedule
-        self.scheduler = optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=num_epochs, eta_min=1e-7)
+        warmup_epochs = min(10, num_epochs // 10)
+        self.scheduler = self.warmup_lr_scheduler(self.optimizer, warmup_epochs, num_epochs)
         
         best_accuracy = 0.0
+        epochs_without_improvement = 0
+        
         for epoch in range(num_epochs):
             print("-"*100)
             self.feature_vit.train()
             self.multi_view_model.train()
             running_loss = 0.0
+            accumulated_loss = 0.0
 
             progress_bar = tqdm(self.train_loader, desc=f"Epoch {epoch+1}/{num_epochs}")
-            for label, data, _ in progress_bar:
+            
+            for batch_idx, (label, data, _) in enumerate(progress_bar):
                 label = label.to(self.device, non_blocking=True)
                 data = data.to(self.device, non_blocking=True)
                 B, V, C, H, W = data.shape
                 data = data.view(B * V, C, H, W)
-
-                self.optimizer.zero_grad()
 
                 if self.use_amp:
                     with torch.amp.autocast(device_type=self.device.type):
@@ -127,44 +147,72 @@ class Trainer:
                         cls_tokens = cls_tokens.view(B, V, -1)
                         outputs = self.multi_view_model(cls_tokens)
                         loss = self.criterion(outputs, label)
+                        # Normalize loss for gradient accumulation
+                        loss = loss / self.gradient_accumulation_steps
 
                     self.scaler.scale(loss).backward()
-                    self.scaler.unscale_(self.optimizer)
-                    torch.nn.utils.clip_grad_norm_(
-                        list(self.feature_vit.parameters()) + list(self.multi_view_model.parameters()), 
-                        max_norm=1.0
-                    )
-                    self.scaler.step(self.optimizer)
-                    self.scaler.update()
+                    accumulated_loss += loss.item()
+                    
+                    # Gradient accumulation step
+                    if (batch_idx + 1) % self.gradient_accumulation_steps == 0:
+                        self.scaler.unscale_(self.optimizer)
+                        torch.nn.utils.clip_grad_norm_(
+                            list(self.feature_vit.parameters()) + list(self.multi_view_model.parameters()), 
+                            max_norm=1.0
+                        )
+                        self.scaler.step(self.optimizer)
+                        self.scaler.update()
+                        self.optimizer.zero_grad()
+                        
+                        running_loss += accumulated_loss
+                        accumulated_loss = 0.0
                 else:
                     features = self.feature_vit(data)
                     cls_tokens = features[:, 0, :]
                     cls_tokens = cls_tokens.view(B, V, -1)
                     outputs = self.multi_view_model(cls_tokens)
                     loss = self.criterion(outputs, label)
+                    loss = loss / self.gradient_accumulation_steps
 
                     loss.backward()
-                    torch.nn.utils.clip_grad_norm_(
-                        list(self.feature_vit.parameters()) + list(self.multi_view_model.parameters()), 
-                        max_norm=1.0
-                    )
-                    self.optimizer.step()
+                    accumulated_loss += loss.item()
+                    
+                    if (batch_idx + 1) % self.gradient_accumulation_steps == 0:
+                        torch.nn.utils.clip_grad_norm_(
+                            list(self.feature_vit.parameters()) + list(self.multi_view_model.parameters()), 
+                            max_norm=1.0
+                        )
+                        self.optimizer.step()
+                        self.optimizer.zero_grad()
+                        
+                        running_loss += accumulated_loss
+                        accumulated_loss = 0.0
 
-                
-                running_loss += loss.item()
-                progress_bar.set_postfix(loss=loss.item(), lr=self.optimizer.param_groups[1]['lr'])
+                progress_bar.set_postfix(
+                    loss=loss.item() * self.gradient_accumulation_steps, 
+                    lr=self.optimizer.param_groups[1]['lr']
+                )
 
             self.scheduler.step()
-            avg_loss = running_loss / len(self.train_loader)
+            avg_loss = running_loss / (len(self.train_loader) // self.gradient_accumulation_steps)
             test_accuracy, class_accuracy = self.get_test_accuracy()
             
-            if class_accuracy > best_accuracy:
+            # Early stopping logic
+            if class_accuracy > best_accuracy + self.min_delta:
                 best_accuracy = class_accuracy
+                epochs_without_improvement = 0
                 self.save_model("feature_vit_best.pth", "multi_view_model_best.pth")
+            else:
+                epochs_without_improvement += 1
                 
             print(
                 f"Epoch [{epoch + 1}/{num_epochs}], Loss: {avg_loss:.4f}, Avg Acc: {test_accuracy:.4f}, Class Acc: {class_accuracy:.4f}, Best: {best_accuracy:.4f}, LR: {self.optimizer.param_groups[1]['lr']:.6f}"
             )
+            
+            # Early stopping
+            if epochs_without_improvement >= self.patience and epoch > warmup_epochs:
+                print(f"Early stopping at epoch {epoch+1}")
+                break
 
             if self.device.type == 'cuda':
                 torch.cuda.empty_cache()
