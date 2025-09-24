@@ -162,7 +162,7 @@ class Trainer:
                 self.save_model()
                 
             print(
-                f"Epoch [{epoch + 1}/{num_epochs}], Loss: {avg_loss:.4f}, Average Accuracy: {test_accuracy:.4f}, Mean Class Accuracy: {class_accuracy:.4f}, Best: {best_accuracy:.4f}, LR Feature VIT: {self.optimizer.param_groups[0]['lr']:.6f}, LR Multi-View Model: {self.optimizer.param_groups[1]['lr']:.6f}"
+                f"Epoch [{epoch + 1}/{num_epochs}], Loss: {avg_loss:.4f}, Avg Acc: {test_accuracy:.4f}, Class Acc: {class_accuracy:.4f}, Best: {best_accuracy:.4f}, LR: {self.optimizer.param_groups[1]['lr']:.6f}"
             )
 
             if self.device.type == 'cuda':
