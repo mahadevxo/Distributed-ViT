@@ -32,8 +32,8 @@ class Trainer:
         
         # Higher learning rates for simpler model
         optimizer_params = [
-            {'params': self.feature_vit.parameters(), 'lr': 1e-6},  # Very low for pretrained
-            {'params': self.multi_view_model.parameters(), 'lr': 1e-3}  # Higher for simple classifier
+            {'params': self.feature_vit.parameters(), 'lr': 1e-5},
+            {'params': self.multi_view_model.parameters(), 'lr': 1e-5} 
         ]
         self.optimizer = optim.AdamW(optimizer_params, weight_decay=0.01, betas=(0.9, 0.999))
 
