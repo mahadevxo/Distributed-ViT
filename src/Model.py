@@ -41,7 +41,7 @@ class MultiView_Classifier(torch.nn.Module):
         encoder_layer = torch.nn.TransformerEncoderLayer(d_model=embed_dim, nhead=num_heads, batch_first=True, dropout=0.1)
         self.view_transformer = torch.nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
 
-        self.dropout = torch.nn.Dropout(0.2)
+        self.dropout = torch.nn.Dropout(0.3)
         self.classifier = torch.nn.Linear(embed_dim, num_classes)
 
     def forward(self, view_features):

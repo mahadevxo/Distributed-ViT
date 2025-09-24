@@ -26,9 +26,12 @@ class Trainer:
         
         self.criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
         
-        self.optimizer = optim.AdamW(list(self.feature_vit.parameters()) + list(self.multi_view_model.parameters()), 
-                                    lr=1e-5, weight_decay=0.01)
-        
+        optimizer_params = [
+            {'params': self.feature_vit.parameters(), 'lr': 1e-5},
+            {'params': self.multi_view_model.parameters(), 'lr': 1e-4}
+        ]
+        self.optimizer = optim.AdamW(optimizer_params, weight_decay=0.01)
+
         self.scheduler = optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=50, eta_min=1e-6)
         
         # Mixed precision training
@@ -149,9 +152,8 @@ class Trainer:
 
             test_accuracy, class_accuracy = self.get_test_accuracy()
 
-            if test_accuracy > class_accuracy:
+            if class_accuracy > best_accuracy:
                 best_accuracy = class_accuracy
-                
                 self.save_model()
                 
             print(
