@@ -7,10 +7,9 @@ import torch.optim as optim
 from torch.amp import GradScaler
 from tqdm import tqdm
 import gc
-import math
 
 class Trainer:
-    def __init__(self, num_views=12, num_classes=40, embed_dim=768, num_heads=4, num_layers=2, 
+    def __init__(self, num_views=12, num_classes=40, embed_dim=1024, num_heads=4, num_layers=2, 
                  freeze_feat_vit=False, freeze_class_model=False, use_amp=False):
         self.num_views = num_views
         self.num_classes = num_classes
@@ -27,14 +26,10 @@ class Trainer:
         
         self.criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
         
-        # Enhanced optimizer with different learning rates
-        optimizer_params = [
-            {'params': self.feature_vit.parameters(), 'lr': 5e-5, 'weight_decay': 0.05},
-            {'params': self.multi_view_model.parameters(), 'lr': 1e-4, 'weight_decay': 0.01}
-        ]
-        self.optimizer = optim.AdamW(optimizer_params, betas=(0.9, 0.999), eps=1e-8)
-
-        self.scheduler = None
+        self.optimizer = optim.AdamW(list(self.feature_vit.parameters()) + list(self.multi_view_model.parameters()), 
+                                    lr=1e-5, weight_decay=0.01)
+        
+        self.scheduler = optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=50, eta_min=1e-6)
         
         # Mixed precision training
         self.use_amp = use_amp or (self.device.type == 'cuda')
@@ -50,11 +45,6 @@ class Trainer:
         
         self.freeze_feat_vit = freeze_feat_vit
         self.freeze_class_model = freeze_class_model
-        
-        # Add gradient accumulation
-        self.gradient_accumulation_steps = 4
-        self.patience = 15
-        self.min_delta = 0.001
         
     def get_train_loader(self, train_dir, batch_size=16, shuffle=True, num_workers=8):
         train_set = MultiviewImgDataset(train_dir, num_views=self.num_views)
@@ -73,12 +63,10 @@ class Trainer:
     def get_test_accuracy(self):
         self.feature_vit.eval()
         self.multi_view_model.eval()
-        
         correct_class = torch.zeros(self.num_classes).to(self.device)
         total_class = torch.zeros(self.num_classes).to(self.device)
         correct = 0
         total = 0
-        
         with torch.no_grad():
             for label, data, _ in tqdm(self.test_loader, desc="Testing", leave=False):
                 label = label.to(self.device, non_blocking=True)
@@ -99,46 +87,29 @@ class Trainer:
                     if predicted[i] == label[i]:
                         correct_class[label[i]] += 1
                         
+        # Avoid division by zero for classes with no samples
         class_accuracies = torch.where(total_class > 0, correct_class / total_class, torch.zeros_like(correct_class))
         average_class_accuracy = class_accuracies[total_class > 0].mean().item() if (total_class > 0).any() else 0.0
-        
         return correct / total, average_class_accuracy
     
-    def warmup_lr_scheduler(self, optimizer, warmup_epochs, total_epochs):
-        """Cosine annealing with warmup"""
-        def lr_lambda(epoch):
-            if epoch < warmup_epochs:
-                return epoch / warmup_epochs
-            else:
-                progress = (epoch - warmup_epochs) / (total_epochs - warmup_epochs)
-                return 0.5 * (1 + math.cos(math.pi * progress))
-        return optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
-    
-    def train(self, num_epochs=10):
+    def train(self, num_epochs=10):  # sourcery skip: low-code-quality
         if self.train_loader is None or self.test_loader is None:
             raise ValueError("Train and test loaders must be set before training.")
-        
-        # Warmup + Cosine schedule
-        warmup_epochs = min(10, num_epochs // 10)
-        self.scheduler = self.warmup_lr_scheduler(self.optimizer, warmup_epochs, num_epochs)
-        
+
         best_accuracy = 0.0
-        epochs_without_improvement = 0
-        
         for epoch in range(num_epochs):
-            print("-"*100)
-            self.feature_vit.train()
-            self.multi_view_model.train()
+            self.feature_vit.eval() if self.freeze_feat_vit else self.feature_vit.train()
+            self.multi_view_model.eval() if self.freeze_class_model else self.multi_view_model.train()
             running_loss = 0.0
-            accumulated_loss = 0.0
 
             progress_bar = tqdm(self.train_loader, desc=f"Epoch {epoch+1}/{num_epochs}")
-            
-            for batch_idx, (label, data, _) in enumerate(progress_bar):
+            for label, data, _ in progress_bar:
                 label = label.to(self.device, non_blocking=True)
                 data = data.to(self.device, non_blocking=True)
                 B, V, C, H, W = data.shape
                 data = data.view(B * V, C, H, W)
+
+                self.optimizer.zero_grad()
 
                 if self.use_amp:
                     with torch.amp.autocast(device_type=self.device.type):
@@ -147,72 +118,44 @@ class Trainer:
                         cls_tokens = cls_tokens.view(B, V, -1)
                         outputs = self.multi_view_model(cls_tokens)
                         loss = self.criterion(outputs, label)
-                        # Normalize loss for gradient accumulation
-                        loss = loss / self.gradient_accumulation_steps
 
                     self.scaler.scale(loss).backward()
-                    accumulated_loss += loss.item()
-                    
-                    # Gradient accumulation step
-                    if (batch_idx + 1) % self.gradient_accumulation_steps == 0:
-                        self.scaler.unscale_(self.optimizer)
-                        torch.nn.utils.clip_grad_norm_(
-                            list(self.feature_vit.parameters()) + list(self.multi_view_model.parameters()), 
-                            max_norm=1.0
-                        )
-                        self.scaler.step(self.optimizer)
-                        self.scaler.update()
-                        self.optimizer.zero_grad()
-                        
-                        running_loss += accumulated_loss
-                        accumulated_loss = 0.0
+                    self.scaler.unscale_(self.optimizer)
+                    torch.nn.utils.clip_grad_norm_(
+                        list(self.feature_vit.parameters()) + list(self.multi_view_model.parameters()), 
+                        max_norm=1.0
+                    )
+                    self.scaler.step(self.optimizer)
+                    self.scaler.update()
                 else:
                     features = self.feature_vit(data)
                     cls_tokens = features[:, 0, :]
                     cls_tokens = cls_tokens.view(B, V, -1)
                     outputs = self.multi_view_model(cls_tokens)
                     loss = self.criterion(outputs, label)
-                    loss = loss / self.gradient_accumulation_steps
 
                     loss.backward()
-                    accumulated_loss += loss.item()
-                    
-                    if (batch_idx + 1) % self.gradient_accumulation_steps == 0:
-                        torch.nn.utils.clip_grad_norm_(
-                            list(self.feature_vit.parameters()) + list(self.multi_view_model.parameters()), 
-                            max_norm=1.0
-                        )
-                        self.optimizer.step()
-                        self.optimizer.zero_grad()
-                        
-                        running_loss += accumulated_loss
-                        accumulated_loss = 0.0
+                    torch.nn.utils.clip_grad_norm_(
+                        list(self.feature_vit.parameters()) + list(self.multi_view_model.parameters()), 
+                        max_norm=1.0
+                    )
+                    self.optimizer.step()
 
-                progress_bar.set_postfix(
-                    loss=loss.item() * self.gradient_accumulation_steps, 
-                    lr=self.optimizer.param_groups[1]['lr']
-                )
+                running_loss += loss.item()
+                progress_bar.set_postfix(loss=loss.item(), lr=self.optimizer.param_groups[0]['lr'])
 
             self.scheduler.step()
-            avg_loss = running_loss / (len(self.train_loader) // self.gradient_accumulation_steps)
+            avg_loss = running_loss / len(self.train_loader)
+
             test_accuracy, class_accuracy = self.get_test_accuracy()
-            
-            # Early stopping logic
-            if class_accuracy > best_accuracy + self.min_delta:
+
+            if class_accuracy > best_accuracy:
                 best_accuracy = class_accuracy
-                epochs_without_improvement = 0
-                self.save_model("feature_vit_best.pth", "multi_view_model_best.pth")
-            else:
-                epochs_without_improvement += 1
+                self.save_model()
                 
             print(
-                f"Epoch [{epoch + 1}/{num_epochs}], Loss: {avg_loss:.4f}, Avg Acc: {test_accuracy:.4f}, Class Acc: {class_accuracy:.4f}, Best: {best_accuracy:.4f}, LR: {self.optimizer.param_groups[1]['lr']:.6f}"
+                f"Epoch [{epoch + 1}/{num_epochs}], Loss: {avg_loss:.4f}, Test Accuracy: {test_accuracy:.4f}, Class Accuracy: {class_accuracy:.4f}, Best: {best_accuracy:.4f}, LR: {self.optimizer.param_groups[0]['lr']:.6f}"
             )
-            
-            # Early stopping
-            if epochs_without_improvement >= self.patience and epoch > warmup_epochs:
-                print(f"Early stopping at epoch {epoch+1}")
-                break
 
             if self.device.type == 'cuda':
                 torch.cuda.empty_cache()
@@ -222,7 +165,7 @@ class Trainer:
 
         print("Training complete.")
     
-    def save_model(self, feat_vit_path="feature_vit.pth", class_model_path="multi_view_model.pth"):
+    def save_model(self, feat_vit_path="feature_vit-.pth", class_model_path="multi_view_model.pth"):
         torch.save(self.feature_vit.state_dict(), feat_vit_path)
         torch.save(self.multi_view_model.state_dict(), class_model_path)
         print("Models saved successfully.")
