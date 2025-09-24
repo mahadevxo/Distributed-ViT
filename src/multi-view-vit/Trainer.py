@@ -97,16 +97,24 @@ class Trainer:
         
         return correct / total, average_class_accuracy
     
-    def train(self, num_epochs=10):  # sourcery skip: low-code-quality
+    def train(self, num_epochs=10):
         if self.train_loader is None or self.test_loader is None:
             raise ValueError("Train and test loaders must be set before training.")
         
-        self.scheduler = optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=num_epochs, eta_min=1e-6)
+        # Warmup + Cosine schedule
+        self.scheduler = optim.lr_scheduler.OneCycleLR(
+            self.optimizer, 
+            max_lr=[p['lr'] * 10 for p in self.optimizer.param_groups],  # 10x peak LR
+            epochs=num_epochs,
+            steps_per_epoch=len(self.train_loader),
+            pct_start=0.1  # 10% warmup
+        )
+        
         best_accuracy = 0.0
         for epoch in range(num_epochs):
             print("-"*100)
-            self.feature_vit.eval() if self.freeze_feat_vit else self.feature_vit.train()
-            self.multi_view_model.eval() if self.freeze_class_model else self.multi_view_model.train()
+            self.feature_vit.train()
+            self.multi_view_model.train()
             running_loss = 0.0
 
             progress_bar = tqdm(self.train_loader, desc=f"Epoch {epoch+1}/{num_epochs}")
@@ -148,18 +156,18 @@ class Trainer:
                     )
                     self.optimizer.step()
 
+                # Step scheduler every batch for OneCycleLR
+                self.scheduler.step()
+                
                 running_loss += loss.item()
-                progress_bar.set_postfix(loss=loss.item(), lr=self.optimizer.param_groups[0]['lr'])
+                progress_bar.set_postfix(loss=loss.item(), lr=self.optimizer.param_groups[1]['lr'])
 
-            self.scheduler.step()
             avg_loss = running_loss / len(self.train_loader)
-
             test_accuracy, class_accuracy = self.get_test_accuracy()
             
-
             if class_accuracy > best_accuracy:
                 best_accuracy = class_accuracy
-                self.save_model()
+                self.save_model("feature_vit_best.pth", "multi_view_model_best.pth")
                 
             print(
                 f"Epoch [{epoch + 1}/{num_epochs}], Loss: {avg_loss:.4f}, Avg Acc: {test_accuracy:.4f}, Class Acc: {class_accuracy:.4f}, Best: {best_accuracy:.4f}, LR: {self.optimizer.param_groups[1]['lr']:.6f}"

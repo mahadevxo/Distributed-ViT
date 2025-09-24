@@ -34,23 +34,48 @@ class MultiView_Classifier(torch.nn.Module):
         self.num_views = num_views
         self.embed_dim = embed_dim
         
+        # Add a learnable view embedding
+        self.view_embedding = torch.nn.Embedding(num_views, embed_dim)
+        
+        # CLS token for aggregation
         self.cls_token = torch.nn.Parameter(torch.randn(1, 1, embed_dim))
-        self.view_pos_embedding = torch.nn.Parameter(torch.randn(1, num_views+1, embed_dim))
-
-        encoder_layer = torch.nn.TransformerEncoderLayer(d_model=embed_dim, nhead=num_heads, batch_first=True, dropout=0.1)
+        
+        # More sophisticated transformer
+        encoder_layer = torch.nn.TransformerEncoderLayer(
+            d_model=embed_dim, 
+            nhead=num_heads, 
+            dim_feedforward=embed_dim * 4,  # Larger FFN
+            dropout=0.1,
+            activation='gelu',
+            batch_first=True
+        )
         self.view_transformer = torch.nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
 
-        self.dropout = torch.nn.Dropout(0.1)
-        self.classifier = torch.nn.Linear(embed_dim, num_classes)
+        # Better classifier head
+        self.classifier = torch.nn.Sequential(
+            torch.nn.LayerNorm(embed_dim),
+            torch.nn.Dropout(0.1),
+            torch.nn.Linear(embed_dim, embed_dim // 2),
+            torch.nn.GELU(),
+            torch.nn.Dropout(0.1),
+            torch.nn.Linear(embed_dim // 2, num_classes)
+        )
 
     def forward(self, view_features):
         B = view_features.shape[0]
-        cls_tokens = self.cls_token.expand(B, -1, -1)
-        view_features = torch.cat((cls_tokens, view_features), dim=1)
-        view_features = view_features + self.view_pos_embedding
         
-        x = self.view_transformer(view_features)
-        x = x[:, 0]
-        x = self.dropout(x)
-        x = self.classifier(x)
-        return x
+        # Add view-specific embeddings
+        view_ids = torch.arange(self.num_views, device=view_features.device).unsqueeze(0).expand(B, -1)
+        view_emb = self.view_embedding(view_ids)
+        view_features = view_features + view_emb
+        
+        # Add CLS token
+        cls_tokens = self.cls_token.expand(B, -1, -1)
+        x = torch.cat([cls_tokens, view_features], dim=1)
+        
+        # Transform
+        x = self.view_transformer(x)
+        
+        # Use CLS token for classification
+        cls_output = x[:, 0]
+        return self.classifier(cls_output)
