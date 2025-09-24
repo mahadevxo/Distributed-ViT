@@ -9,7 +9,7 @@ from tqdm import tqdm
 import gc
 
 class Trainer:
-    def __init__(self, num_views=12, num_classes=40, embed_dim=1024, num_heads=4, num_layers=2, 
+    def __init__(self, num_views=12, num_classes=40, embed_dim=768, num_heads=4, num_layers=2, 
                  freeze_feat_vit=False, freeze_class_model=False, use_amp=False):
         self.num_views = num_views
         self.num_classes = num_classes
@@ -154,14 +154,14 @@ class Trainer:
             avg_loss = running_loss / len(self.train_loader)
 
             test_accuracy, class_accuracy = self.get_test_accuracy()
+            
 
             if class_accuracy > best_accuracy:
                 best_accuracy = class_accuracy
                 self.save_model()
                 
             print(
-                f"Epoch [{epoch + 1}/{num_epochs}], Loss: {avg_loss:.4f}, Average Accuracy: {test_accuracy:.4f}, \
-                    Mean Class Accuracy: {class_accuracy:.4f}, Best: {best_accuracy:.4f}, LR: {self.optimizer.param_groups[0]['lr']:.6f}"
+                f"Epoch [{epoch + 1}/{num_epochs}], Loss: {avg_loss:.4f}, Average Accuracy: {test_accuracy:.4f}, Mean Class Accuracy: {class_accuracy:.4f}, Best: {best_accuracy:.4f}, LR: {self.optimizer.param_groups[0]['lr']:.6f}"
             )
 
             if self.device.type == 'cuda':
