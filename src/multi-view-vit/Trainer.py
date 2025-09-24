@@ -27,8 +27,8 @@ class Trainer:
         self.criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
         
         optimizer_params = [
-            {'params': self.feature_vit.parameters(), 'lr': 1e-5},
-            {'params': self.multi_view_model.parameters(), 'lr': 1e-4}
+            {'params': self.feature_vit.parameters(), 'lr': 1e-4},
+            {'params': self.multi_view_model.parameters(), 'lr': 1e-3}
         ]
         self.optimizer = optim.AdamW(optimizer_params, weight_decay=0.01)
 
@@ -92,7 +92,6 @@ class Trainer:
                     if predicted[i] == label[i]:
                         correct_class[label[i]] += 1
                         
-        
         class_accuracies = torch.where(total_class > 0, correct_class / total_class, torch.zeros_like(correct_class))
         average_class_accuracy = class_accuracies[total_class > 0].mean().item() if (total_class > 0).any() else 0.0
         

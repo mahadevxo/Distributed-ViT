@@ -14,7 +14,6 @@ class Feature_ViT(torch.nn.Module):
             self.class_token = base_model.class_token
         else:
             self.class_token = torch.nn.Parameter(torch.randn(1, 1, self.embed_dim))
-            
         if hasattr(base_model, 'pos_embedding'):
             self.pos_embedding = base_model.pos_embedding
         else:
@@ -41,15 +40,13 @@ class MultiView_Classifier(torch.nn.Module):
         encoder_layer = torch.nn.TransformerEncoderLayer(d_model=embed_dim, nhead=num_heads, batch_first=True, dropout=0.1)
         self.view_transformer = torch.nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
 
-        self.dropout = torch.nn.Dropout(0.3)
+        self.dropout = torch.nn.Dropout(0.1)
         self.classifier = torch.nn.Linear(embed_dim, num_classes)
 
     def forward(self, view_features):
         B = view_features.shape[0]
         cls_tokens = self.cls_token.expand(B, -1, -1)
-        
         view_features = torch.cat((cls_tokens, view_features), dim=1)
-        
         view_features = view_features + self.view_pos_embedding
         
         x = self.view_transformer(view_features)
