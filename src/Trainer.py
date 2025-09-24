@@ -18,14 +18,18 @@ class Trainer:
         self.num_layers = num_layers
         self.device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
         print(f"Using device: {self.device}")
+        
         self.feature_vit = Feature_ViT(num_views=num_views).to(self.device)
         self.multi_view_model = MultiView_Classifier(num_views=num_views, num_classes=num_classes, 
                                                      embed_dim=embed_dim, num_heads=num_heads,
                                                      num_layers=num_layers).to(self.device)
+        
         self.criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
+        
         self.optimizer = optim.AdamW(list(self.feature_vit.parameters()) + list(self.multi_view_model.parameters()), 
                                     lr=1e-5, weight_decay=0.01)
-        self.scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(self.optimizer, T_0=50, eta_min=1e-6)
+        
+        self.scheduler = optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_0=50, eta_min=1e-6)
         
         # Mixed precision training
         self.use_amp = use_amp or (self.device.type == 'cuda')
@@ -145,11 +149,13 @@ class Trainer:
 
             test_accuracy, class_accuracy = self.get_test_accuracy()
 
-            if test_accuracy > best_accuracy:
-                best_accuracy = test_accuracy
+            if test_accuracy > class_accuracy:
+                best_accuracy = class_accuracy
+                
                 self.save_model()
+                
             print(
-                f"Epoch [{epoch + 1}/{num_epochs}], Loss: {avg_loss:.4f}, Test Accuracy: {best_accuracy:.4f}, Class Accuracy: {class_accuracy:.4f}, Best: {best_accuracy:.4f}, LR: {self.optimizer.param_groups[0]['lr']:.6f}"
+                f"Epoch [{epoch + 1}/{num_epochs}], Loss: {avg_loss:.4f}, Test Accuracy: {test_accuracy:.4f}, Class Accuracy: {class_accuracy:.4f}, Best: {best_accuracy:.4f}, LR: {self.optimizer.param_groups[0]['lr']:.6f}"
             )
 
             if self.device.type == 'cuda':
@@ -160,7 +166,7 @@ class Trainer:
 
         print("Training complete.")
     
-    def save_model(self, feat_vit_path="feature_vit.pth", class_model_path="multi_view_model.pth"):
+    def save_model(self, feat_vit_path="feature_vit-.pth", class_model_path="multi_view_model.pth"):
         torch.save(self.feature_vit.state_dict(), feat_vit_path)
         torch.save(self.multi_view_model.state_dict(), class_model_path)
         print("Models saved successfully.")

@@ -34,17 +34,24 @@ class MultiView_Classifier(torch.nn.Module):
         super(MultiView_Classifier, self).__init__()
         self.num_views = num_views
         self.embed_dim = embed_dim
-
+        
+        self.cls_token = torch.nn.Parameter(torch.randn(1, 1, embed_dim))
         self.view_pos_embedding = torch.nn.Parameter(torch.randn(1, num_views, embed_dim))
 
         encoder_layer = torch.nn.TransformerEncoderLayer(d_model=embed_dim, nhead=num_heads, batch_first=True, dropout=0.1)
         self.view_transformer = torch.nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
 
-        self.dropout = torch.nn.Dropout(0.1)
+        self.dropout = torch.nn.Dropout(0.2)
         self.classifier = torch.nn.Linear(embed_dim, num_classes)
 
     def forward(self, view_features):
-        view_out = self.view_transformer(view_features + self.view_pos_embedding)
-        obj_feat = view_out.mean(dim=1)
-        obj_feat = self.dropout(obj_feat)
-        return self.classifier(obj_feat)
+        B = view_features.shape[0]
+        cls_tokens = self.cls_token.expand(B, -1, -1)
+        view_features = torch.cat((cls_tokens, view_features), dim=1)
+        
+        view_features = view_features + self.view_pos_embedding
+        x = self.view_transformer(view_features)
+        x = x[:, 0]
+        x = self.dropout(x)
+        x = self.classifier(x)
+        return x
