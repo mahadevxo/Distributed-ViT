@@ -34,45 +34,64 @@ class MultiView_Classifier(torch.nn.Module):
         self.num_views = num_views
         self.embed_dim = embed_dim
         
-        # Add a learnable view embedding
-        self.view_embedding = torch.nn.Embedding(num_views, embed_dim)
+        # Simpler view embedding - reduce dimension
+        self.view_embedding = torch.nn.Embedding(num_views, embed_dim // 4)
+        self.view_proj = torch.nn.Linear(embed_dim + embed_dim // 4, embed_dim)
         
-        # CLS token for aggregation
-        self.cls_token = torch.nn.Parameter(torch.randn(1, 1, embed_dim))
+        # Simpler CLS token
+        self.cls_token = torch.nn.Parameter(torch.zeros(1, 1, embed_dim))
         
-        # Simpler transformer initially
+        # Much simpler transformer - single layer, fewer heads, no dropout initially
         encoder_layer = torch.nn.TransformerEncoderLayer(
             d_model=embed_dim, 
-            nhead=num_heads, 
-            dim_feedforward=embed_dim * 2,  # Smaller FFN initially
-            dropout=0.05,  # Less dropout
-            activation='gelu',
-            batch_first=True
+            nhead=4,  # Reduce heads
+            dim_feedforward=embed_dim,  # Smaller feedforward 
+            dropout=0.0,  # No dropout initially
+            activation='relu',  # Simpler activation
+            batch_first=True,
+            norm_first=False
         )
-        self.view_transformer = torch.nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+        self.view_transformer = torch.nn.TransformerEncoder(encoder_layer, num_layers=1)  # Single layer
 
-        # Simpler classifier head initially
-        self.classifier = torch.nn.Sequential(
-            torch.nn.LayerNorm(embed_dim),
-            torch.nn.Dropout(0.05),  # Less dropout
-            torch.nn.Linear(embed_dim, num_classes)  # Direct classification
-        )
+        # Very simple classifier - direct mapping
+        self.classifier = torch.nn.Linear(embed_dim, num_classes)
+        
+        # Initialize weights properly
+        self._init_weights()
+
+    def _init_weights(self):
+        # Initialize CLS token to zeros
+        torch.nn.init.zeros_(self.cls_token)
+        
+        # Initialize view embedding with small values
+        torch.nn.init.normal_(self.view_embedding.weight, std=0.02)
+        
+        # Initialize classifier with small weights
+        torch.nn.init.normal_(self.classifier.weight, std=0.02)
+        torch.nn.init.zeros_(self.classifier.bias)
+        
+        # Initialize projection layer
+        torch.nn.init.xavier_uniform_(self.view_proj.weight)
+        torch.nn.init.zeros_(self.view_proj.bias)
 
     def forward(self, view_features):
         B = view_features.shape[0]
         
-        # Add view-specific embeddings
+        # Add view-specific embeddings (smaller dimension)
         view_ids = torch.arange(self.num_views, device=view_features.device).unsqueeze(0).expand(B, -1)
-        view_emb = self.view_embedding(view_ids)
-        view_features = view_features + view_emb
+        view_emb = self.view_embedding(view_ids)  # [B, num_views, embed_dim//4]
+        
+        # Concatenate and project
+        view_features_expanded = torch.cat([view_features, view_emb], dim=-1)  # [B, num_views, embed_dim + embed_dim//4]
+        view_features = self.view_proj(view_features_expanded)  # [B, num_views, embed_dim]
         
         # Add CLS token
         cls_tokens = self.cls_token.expand(B, -1, -1)
-        x = torch.cat([cls_tokens, view_features], dim=1)
+        x = torch.cat([cls_tokens, view_features], dim=1)  # [B, 1 + num_views, embed_dim]
         
-        # Transform
+        # Single transformer layer
         x = self.view_transformer(x)
         
         # Use CLS token for classification
-        cls_output = x[:, 0]
+        cls_output = x[:, 0]  # [B, embed_dim]
         return self.classifier(cls_output)
