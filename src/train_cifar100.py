@@ -40,12 +40,12 @@ def compute_accuracy(model):
 def train_model(model, epochs=3):
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
-    model.train()
     
     loss_history = []
     accuracy_history = []
     
     for epoch in range(epochs):
+        model.train()  # Set to training mode at start of each epoch
         epoch_losses = []
         pbar = tqdm(cifar100_train_loader, desc=f"Epoch {epoch+1}/{epochs}", leave=True)
         for images, labels in pbar:
@@ -62,6 +62,7 @@ def train_model(model, epochs=3):
         loss_history.append(avg_loss)
         print(f'Epoch [{epoch+1}/{epochs}], Loss: {avg_loss:.4f}')
         
+        # Evaluate after each epoch
         accuracy = compute_accuracy(model)
         accuracy_history.append(accuracy)
         print(f'Accuracy after epoch {epoch+1}: {accuracy:.2f}%')
